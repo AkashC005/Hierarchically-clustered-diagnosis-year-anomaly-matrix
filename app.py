@@ -23,7 +23,11 @@ st.set_page_config(
 # App text
 # =========================================================
 APP_TITLE = "Recovered totals, reconfigured ages: Hierarchically clustered diagnosis-year anomaly matrix"
-APP_SUBTITLE = "3-character primary diagnoses, financial years 2012–2023/24. Highlighted rows show diagnoses whose total admissions move back toward baseline while their age profile remains altered."
+APP_SUBTITLE = (
+    "3-character primary diagnoses, financial years 2012–2023/24. "
+    "Highlighted rows show diagnoses whose total admissions move back toward baseline "
+    "while their age profile remains altered."
+)
 
 # =========================================================
 # Paths
@@ -83,20 +87,26 @@ def get_zip_path():
     for p in ZIP_CANDIDATES:
         if p.exists():
             return p
+
     raise FileNotFoundError(
-        "Could not find 'NHS Hospital Admissions.zip'. Place it in ./data or project root."
+        "Could not find 'NHS Hospital Admissions.zip'. "
+        "Place it in ./data or in the project root."
     )
 
 
 def find_sheet_for_level(xls, level_key):
     for name in xls.sheet_names:
         n = name.lower()
+
         if "primary" not in n:
             continue
+
         if level_key == "3_char" and ("3 char" in n or "3 character" in n):
             return name
+
         if level_key == "4_char" and ("4 char" in n or "4 character" in n):
             return name
+
     raise ValueError(f"No sheet found for level {level_key}")
 
 
@@ -105,10 +115,12 @@ def find_header_row(raw):
         row_text = " | ".join(
             normalise_text(v) for v in raw.iloc[i].tolist() if normalise_text(v)
         )
+
         if "finished consultant episodes" in row_text and (
             "admissions" in row_text or "finished admission episodes" in row_text
         ):
             return i
+
     raise ValueError("Could not detect header row")
 
 
@@ -116,10 +128,12 @@ def guess_column_index(header_lookup, candidates):
     for c in candidates:
         if c in header_lookup:
             return header_lookup[c]
+
     for key, idx in header_lookup.items():
         for c in candidates:
             if key.startswith(c):
                 return idx
+
     return None
 
 
@@ -131,6 +145,7 @@ def parse_code_description_from_row(row):
 
     if pd.notna(first_four[0]):
         candidate = str(first_four[0]).strip()
+
         if code_pattern_3.match(candidate) or code_pattern_4.match(candidate):
             desc = str(first_four[1]).strip() if pd.notna(first_four[1]) else candidate
             return candidate, desc
@@ -139,6 +154,7 @@ def parse_code_description_from_row(row):
         if pd.notna(v):
             s = str(v).strip()
             m = re.match(r"^([A-Z]\d{2}(?:\.[A-Z0-9])?)\s+(.*)$", s)
+
             if m:
                 return m.group(1), m.group(2).strip()
 
@@ -148,6 +164,7 @@ def parse_code_description_from_row(row):
 def clean_numeric(x):
     if pd.isna(x):
         return np.nan
+
     return pd.to_numeric(str(x).replace(",", "").strip(), errors="coerce")
 
 
@@ -161,17 +178,22 @@ def canonical_age_label(raw_label):
 def derive_chapter(code):
     if isinstance(code, str) and len(code) > 0:
         first = code[0].upper()
+
         if first in CHAPTER_MAP:
             return CHAPTER_MAP[first]
+
     return "Other"
 
 
 def shorten_label(desc, max_len=38):
     if pd.isna(desc):
         return ""
+
     desc = re.sub(r"\s+", " ", str(desc)).strip()
+
     if len(desc) <= max_len:
         return desc
+
     return desc[: max_len - 1].rstrip(" ,;:-") + "…"
 
 
@@ -182,12 +204,14 @@ def wrap_label(label, width=28):
 def signed_log2_ratio(x, baseline):
     if pd.isna(x) or pd.isna(baseline) or baseline <= 0 or x <= 0:
         return np.nan
+
     return float(np.log2(x / baseline))
 
 
 def js_distance(p, q):
     p = np.asarray(p, dtype=float)
     q = np.asarray(q, dtype=float)
+
     p = np.where(np.isnan(p), 0, p)
     q = np.where(np.isnan(q), 0, q)
 
@@ -208,29 +232,37 @@ def js_distance(p, q):
 def zscore(s):
     s = s.astype(float)
     sd = s.std(ddof=0)
+
     if pd.isna(sd) or sd == 0:
         return pd.Series(np.zeros(len(s)), index=s.index)
+
     return (s - s.mean()) / sd
 
 
 def classify_gender_skew(female_share):
     if pd.isna(female_share):
         return "Unknown"
+
     if female_share >= 0.55:
         return "Female-skewed"
+
     if female_share <= 0.45:
         return "Male-skewed"
+
     return "Balanced"
 
 
 def classify_mode_skew(em_share, pl_share):
     if pd.isna(em_share) and pd.isna(pl_share):
         return "Unknown"
+
     if pd.notna(em_share) and pd.notna(pl_share):
         if em_share > pl_share:
             return "Emergency-dominant"
+
         if pl_share > em_share:
             return "Planned-dominant"
+
     return "Mixed"
 
 
@@ -250,16 +282,21 @@ def build_tidy_dataset_from_zip():
     files = sorted(root.glob("*.xlsx"))
 
     if not files:
-        raise FileNotFoundError("No yearly .xlsx files found after extraction")
+        files = sorted(extract_dir.rglob("*.xlsx"))
+
+    if not files:
+        raise FileNotFoundError("No yearly .xlsx files found after extraction.")
 
     records = []
 
     for fp in files:
         m = re.search(r"(20\d{2})-(\d{2})", fp.name.lower())
+
         if not m:
             continue
 
         year = int(m.group(1))
+
         if year < 2012 or year > 2023:
             continue
 
@@ -281,16 +318,21 @@ def build_tidy_dataset_from_zip():
                 if normalise_text(v)
             }
 
-            admissions_col = guess_column_index(header_lookup, ["admissions", "finished admission episodes"])
+            admissions_col = guess_column_index(
+                header_lookup,
+                ["admissions", "finished admission episodes"]
+            )
             male_col = guess_column_index(header_lookup, ["male"])
             female_col = guess_column_index(header_lookup, ["female"])
             emergency_col = guess_column_index(header_lookup, ["emergency"])
             planned_col = guess_column_index(header_lookup, ["planned"])
 
             age_cols = {}
+
             for key, idx in header_lookup.items():
                 if key.startswith("age "):
                     age_label = canonical_age_label(key)
+
                     if age_label in AGE_ORDER:
                         age_cols[age_label] = idx
 
@@ -298,6 +340,7 @@ def build_tidy_dataset_from_zip():
 
             for _, row in data.iterrows():
                 code, desc = parse_code_description_from_row(row)
+
                 if code is None:
                     continue
 
@@ -316,7 +359,11 @@ def build_tidy_dataset_from_zip():
                 }
 
                 for age in AGE_ORDER:
-                    rec[f"Age_{age}"] = clean_numeric(row.iloc[age_cols[age]]) if age in age_cols else np.nan
+                    rec[f"Age_{age}"] = (
+                        clean_numeric(row.iloc[age_cols[age]])
+                        if age in age_cols
+                        else np.nan
+                    )
 
                 records.append(rec)
 
@@ -325,7 +372,9 @@ def build_tidy_dataset_from_zip():
     if df.empty:
         return df
 
-    df = df[~(df["Admissions"].isna() & df["Emergency"].isna() & df["Planned"].isna())].copy()
+    df = df[
+        ~(df["Admissions"].isna() & df["Emergency"].isna() & df["Planned"].isna())
+    ].copy()
 
     df["female_share"] = df["Female"] / (df["Female"] + df["Male"])
     df["male_share"] = df["Male"] / (df["Male"] + df["Female"])
@@ -349,6 +398,7 @@ def load_data():
     df = build_tidy_dataset_from_zip()
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
+
     try:
         df.to_parquet(PARQUET_PATH, index=False)
     except Exception:
@@ -370,20 +420,29 @@ def build_anomaly_wide(df_level, age_mode="All ages"):
     for code, g in df_level.groupby("diagnosis_code"):
         if age_mode == "All ages":
             base = g[g["year"].isin(BASELINE_YEARS)]["Admissions"].mean()
+
             series = {
                 y: signed_log2_ratio(
-                    g.loc[g["year"] == y, "Admissions"].iloc[0]
-                    if not g.loc[g["year"] == y, "Admissions"].empty else np.nan,
+                    (
+                        g.loc[g["year"] == y, "Admissions"].iloc[0]
+                        if not g.loc[g["year"] == y, "Admissions"].empty
+                        else np.nan
+                    ),
                     base,
                 )
                 for y in years
             }
+
         else:
             base = g[g["year"].isin(BASELINE_YEARS)][f"Age_{age_mode}"].mean()
+
             series = {
                 y: signed_log2_ratio(
-                    g.loc[g["year"] == y, f"Age_{age_mode}"].iloc[0]
-                    if not g.loc[g["year"] == y, f"Age_{age_mode}"].empty else np.nan,
+                    (
+                        g.loc[g["year"] == y, f"Age_{age_mode}"].iloc[0]
+                        if not g.loc[g["year"] == y, f"Age_{age_mode}"].empty
+                        else np.nan
+                    ),
                     base,
                 )
                 for y in years
@@ -410,9 +469,21 @@ def prepare_metrics(df_level):
     rows = []
 
     for code, g in df_level.groupby("diagnosis_code"):
-        label = g["short_label"].dropna().iloc[0] if not g["short_label"].dropna().empty else code
-        desc = g["diagnosis_description"].dropna().iloc[0] if not g["diagnosis_description"].dropna().empty else code
-        chapter = g["chapter"].dropna().iloc[0] if not g["chapter"].dropna().empty else "Other"
+        label = (
+            g["short_label"].dropna().iloc[0]
+            if not g["short_label"].dropna().empty
+            else code
+        )
+        desc = (
+            g["diagnosis_description"].dropna().iloc[0]
+            if not g["diagnosis_description"].dropna().empty
+            else code
+        )
+        chapter = (
+            g["chapter"].dropna().iloc[0]
+            if not g["chapter"].dropna().empty
+            else "Other"
+        )
 
         baseline = g[g["year"].isin(BASELINE_YEARS)]
         recovery = g[g["year"].isin(RECOVERY_YEARS)]
@@ -421,15 +492,25 @@ def prepare_metrics(df_level):
         recovery_adm = recovery["Admissions"].mean()
 
         recovery_gap = np.nan
+
         if pd.notna(baseline_adm) and baseline_adm > 0 and pd.notna(recovery_adm):
             recovery_gap = (recovery_adm - baseline_adm) / baseline_adm
 
-        baseline_age = np.array([baseline[f"age_share_{a}"].mean() for a in AGE_ORDER], dtype=float)
-        recovery_age = np.array([recovery[f"age_share_{a}"].mean() for a in AGE_ORDER], dtype=float)
+        baseline_age = np.array(
+            [baseline[f"age_share_{a}"].mean() for a in AGE_ORDER],
+            dtype=float,
+        )
+        recovery_age = np.array(
+            [recovery[f"age_share_{a}"].mean() for a in AGE_ORDER],
+            dtype=float,
+        )
 
         age_profile_shift = js_distance(baseline_age, recovery_age)
 
-        older_cols = [f"age_share_{a}" for a in ["65-69", "70-74", "75-79", "80-84", "85-89", "90+"]]
+        older_cols = [
+            f"age_share_{a}"
+            for a in ["65-69", "70-74", "75-79", "80-84", "85-89", "90+"]
+        ]
         older_age_drift = recovery[older_cols].mean().sum() - baseline[older_cols].mean().sum()
 
         em_change = recovery["emergency_share"].mean() - baseline["emergency_share"].mean()
@@ -457,13 +538,17 @@ def prepare_metrics(df_level):
     anomaly_wide = build_anomaly_wide(df_level, age_mode="All ages")
 
     div_rows = []
+
     for chapter, sub in m.groupby("chapter"):
         codes = sub["diagnosis_code"].tolist()
         present = [c for c in codes if c in anomaly_wide.index]
+
         if not present:
             continue
+
         chapter_mat = anomaly_wide.loc[present].fillna(0)
         chapter_mean = chapter_mat.mean(axis=0).values
+
         for c in present:
             div_rows.append({
                 "diagnosis_code": c,
@@ -471,6 +556,7 @@ def prepare_metrics(df_level):
             })
 
     div_df = pd.DataFrame(div_rows)
+
     if not div_df.empty:
         m = m.merge(div_df, on="diagnosis_code", how="left")
     else:
@@ -479,8 +565,12 @@ def prepare_metrics(df_level):
     m["recoveredness"] = 1 / (1 + m["recovery_gap"].abs())
 
     for col in [
-        "baseline_adm", "age_profile_shift", "older_age_drift",
-        "emergency_change", "chapter_divergence", "recoveredness"
+        "baseline_adm",
+        "age_profile_shift",
+        "older_age_drift",
+        "emergency_change",
+        "chapter_divergence",
+        "recoveredness",
     ]:
         m[f"{col}_z"] = zscore(m[col])
 
@@ -515,6 +605,7 @@ def prepare_metrics(df_level):
 # =========================================================
 def apply_metric_filters(metrics_df, chapter_filter, diagnosis_search, gender_filter, mode_filter):
     m = metrics_df.copy()
+
     if m.empty:
         return m
 
@@ -523,6 +614,7 @@ def apply_metric_filters(metrics_df, chapter_filter, diagnosis_search, gender_fi
 
     if diagnosis_search:
         s = diagnosis_search.lower().strip()
+
         m = m[
             m["diagnosis_code"].astype(str).str.lower().str.contains(s, na=False)
             | m["diagnosis_description"].astype(str).str.lower().str.contains(s, na=False)
@@ -543,6 +635,7 @@ def select_visible_diagnoses(metrics_filtered, rows_per_group):
         return pd.DataFrame()
 
     selected_frames = []
+
     for chapter, sub in metrics_filtered.groupby("chapter"):
         selected_frames.append(
             sub.sort_values("selection_score", ascending=False).head(rows_per_group)
@@ -553,7 +646,11 @@ def select_visible_diagnoses(metrics_filtered, rows_per_group):
 
     selected = pd.concat(selected_frames, ignore_index=False).copy()
     selected["display_group"] = selected["chapter"]
-    selected = selected.sort_values(["display_group", "selection_score"], ascending=[True, False])
+    selected = selected.sort_values(
+        ["display_group", "selection_score"],
+        ascending=[True, False],
+    )
+
     return selected
 
 
@@ -562,14 +659,16 @@ def build_row_meta(selected_meta):
         return []
 
     row_meta = []
+
     for group in selected_meta["display_group"].dropna().unique().tolist():
         row_meta.append({
             "row_type": "separator",
             "chapter": group,
-            "label": group
+            "label": group,
         })
 
         sub = selected_meta[selected_meta["display_group"] == group]
+
         for _, row in sub.iterrows():
             row_meta.append({
                 "row_type": "diagnosis",
@@ -587,13 +686,20 @@ def build_row_meta(selected_meta):
 def build_panel_data(df_level, row_meta, visible_years, age_mode):
     panel = {
         "row_labels": [r["label"] for r in row_meta],
-        "chapters": list(dict.fromkeys([r["chapter"] for r in row_meta if r["row_type"] == "separator"])),
+        "chapters": list(dict.fromkeys([
+            r["chapter"] for r in row_meta if r["row_type"] == "separator"
+        ])),
         "band_values": [],
-        "main_z": [], "main_custom": [],
-        "base_z": [], "base_custom": [],
-        "rec_z": [], "rec_custom": [],
-        "em_z": [], "em_custom": [],
-        "fem_z": [], "fem_custom": [],
+        "main_z": [],
+        "main_custom": [],
+        "base_z": [],
+        "base_custom": [],
+        "rec_z": [],
+        "rec_custom": [],
+        "em_z": [],
+        "em_custom": [],
+        "fem_z": [],
+        "fem_custom": [],
         "row_meta": row_meta,
         "visible_years": visible_years,
     }
@@ -603,6 +709,7 @@ def build_panel_data(df_level, row_meta, visible_years, age_mode):
     for meta in row_meta:
         if meta["row_type"] == "separator":
             panel["band_values"].append([chapter_to_num.get(meta["chapter"], np.nan)])
+
             panel["main_z"].append([np.nan] * len(visible_years))
             panel["main_custom"].append([[None] * 9 for _ in visible_years])
 
@@ -617,19 +724,31 @@ def build_panel_data(df_level, row_meta, visible_years, age_mode):
 
             panel["fem_z"].append([np.nan] * 3)
             panel["fem_custom"].append([[None] * 5 for _ in range(3)])
+
             continue
 
         code = meta["diagnosis_code"]
         g = df_level[df_level["diagnosis_code"] == code].copy()
-        desc = g["diagnosis_description"].dropna().iloc[0] if not g["diagnosis_description"].dropna().empty else code
-        chapter = g["chapter"].dropna().iloc[0] if not g["chapter"].dropna().empty else "Other"
+
+        desc = (
+            g["diagnosis_description"].dropna().iloc[0]
+            if not g["diagnosis_description"].dropna().empty
+            else code
+        )
+        chapter = (
+            g["chapter"].dropna().iloc[0]
+            if not g["chapter"].dropna().empty
+            else "Other"
+        )
 
         panel["band_values"].append([chapter_to_num.get(meta["chapter"], np.nan)])
 
         # Main matrix
         if age_mode == "All ages":
             base_val = g[g["year"].isin(BASELINE_YEARS)]["Admissions"].mean()
-            vals, custom = [], []
+            vals = []
+            custom = []
+
             for y in visible_years:
                 sub = g[g["year"] == y]
                 raw = sub["Admissions"].iloc[0] if not sub.empty else np.nan
@@ -637,11 +756,15 @@ def build_panel_data(df_level, row_meta, visible_years, age_mode):
                 em = sub["emergency_share"].iloc[0] if not sub.empty else np.nan
                 pl = sub["planned_share"].iloc[0] if not sub.empty else np.nan
                 fem = sub["female_share"].iloc[0] if not sub.empty else np.nan
+
                 vals.append(np.clip(anom, -2, 2) if pd.notna(anom) else np.nan)
                 custom.append([code, desc, chapter, y, raw, anom, em, pl, fem])
+
         else:
             base_val = g[g["year"].isin(BASELINE_YEARS)][f"Age_{age_mode}"].mean()
-            vals, custom = [], []
+            vals = []
+            custom = []
+
             for y in visible_years:
                 sub = g[g["year"] == y]
                 raw = sub[f"Age_{age_mode}"].iloc[0] if not sub.empty else np.nan
@@ -649,6 +772,7 @@ def build_panel_data(df_level, row_meta, visible_years, age_mode):
                 em = sub["emergency_share"].iloc[0] if not sub.empty else np.nan
                 pl = sub["planned_share"].iloc[0] if not sub.empty else np.nan
                 fem = sub["female_share"].iloc[0] if not sub.empty else np.nan
+
                 vals.append(np.clip(anom, -2, 2) if pd.notna(anom) else np.nan)
                 custom.append([code, desc, chapter, y, raw, anom, em, pl, fem])
 
@@ -656,34 +780,52 @@ def build_panel_data(df_level, row_meta, visible_years, age_mode):
         panel["main_custom"].append(custom)
 
         # Baseline / recovery age sidecars
-        bvals, bcustom = [], []
-        rvals, rcustom = [], []
+        bvals = []
+        bcustom = []
+        rvals = []
+        rcustom = []
+
         for age in AGE_ORDER:
             b = g[g["year"].isin(BASELINE_YEARS)][f"age_share_{age}"].mean()
             r = g[g["year"].isin(RECOVERY_YEARS)][f"age_share_{age}"].mean()
+
             bvals.append(b)
             rvals.append(r)
+
             bcustom.append([code, desc, "Baseline", age, b])
             rcustom.append([code, desc, "Recovery", age, r])
 
         panel["base_z"].append(bvals)
         panel["base_custom"].append(bcustom)
+
         panel["rec_z"].append(rvals)
         panel["rec_custom"].append(rcustom)
 
         # Emergency / female B-S-R
-        periods = [("Baseline", BASELINE_YEARS), ("Shock", SHOCK_YEARS), ("Recovery", RECOVERY_YEARS)]
-        evals, ecustom, fvals, fcustom = [], [], [], []
+        periods = [
+            ("Baseline", BASELINE_YEARS),
+            ("Shock", SHOCK_YEARS),
+            ("Recovery", RECOVERY_YEARS),
+        ]
+
+        evals = []
+        ecustom = []
+        fvals = []
+        fcustom = []
+
         for pname, yrs in periods:
             ev = g[g["year"].isin(yrs)]["emergency_share"].mean()
             fv = g[g["year"].isin(yrs)]["female_share"].mean()
+
             evals.append(ev)
             fvals.append(fv)
+
             ecustom.append([code, desc, pname, "Emergency share", ev])
             fcustom.append([code, desc, pname, "Female share", fv])
 
         panel["em_z"].append(evals)
         panel["em_custom"].append(ecustom)
+
         panel["fem_z"].append(fvals)
         panel["fem_custom"].append(fcustom)
 
@@ -718,7 +860,7 @@ def add_highlight_shapes(fig, row_meta, highlighted_codes, focus_code, years, xr
                 y1=i + 0.5,
                 line=dict(
                     color="#b0463f",
-                    width=2 if meta.get("diagnosis_code") == focus_code else 1
+                    width=2 if meta.get("diagnosis_code") == focus_code else 1,
                 ),
                 fillcolor="rgba(0,0,0,0)",
             )
@@ -757,6 +899,7 @@ def build_main_explorer_figure(panel, highlighted_codes, focus_code):
 
     # ---- Col 1: Chapter colour band ----
     zmax_band = max(1, len(panel["chapters"]) - 1)
+
     fig.add_trace(
         go.Heatmap(
             z=np.array(panel["band_values"], dtype=float),
@@ -927,7 +1070,12 @@ def build_main_explorer_figure(panel, highlighted_codes, focus_code):
         )
 
     # ---- X-axes ----
-    fig.update_xaxes(tickfont=dict(size=10), showgrid=False, row=1, col=2)
+    fig.update_xaxes(
+        tickfont=dict(size=10),
+        showgrid=False,
+        row=1,
+        col=2,
+    )
 
     for c in [3, 4]:
         fig.update_xaxes(
@@ -941,10 +1089,23 @@ def build_main_explorer_figure(panel, highlighted_codes, focus_code):
         )
 
     for c in [5, 6]:
-        fig.update_xaxes(tickfont=dict(size=9), showgrid=False, row=1, col=c)
+        fig.update_xaxes(
+            tickfont=dict(size=9),
+            showgrid=False,
+            row=1,
+            col=c,
+        )
 
     # ---- Highlight outlines ----
-    add_highlight_shapes(fig, row_meta, highlighted_codes, focus_code, years, xref="x2", yref="y")
+    add_highlight_shapes(
+        fig,
+        row_meta,
+        highlighted_codes,
+        focus_code,
+        years,
+        xref="x2",
+        yref="y",
+    )
 
     # ---- Subplot title styling ----
     for ann in fig.layout.annotations:
@@ -952,14 +1113,14 @@ def build_main_explorer_figure(panel, highlighted_codes, focus_code):
         ann.y = 1.03
 
     # =====================================================
-    # FIXED COLORBARS
+    # Bottom colorbars
     # =====================================================
-    # Do not use visible=False for these. Plotly hides the colorbar
-    # when the trace is invisible. Instead, use opacity=0.
+    # These are invisible Scatter traces with visible colorbars.
+    # Important: use x/y = None so the traces DO NOT change the axis range.
     def add_bottom_colorbar(
         colorscale,
-        zmin,
-        zmax,
+        cmin,
+        cmax,
         x,
         y,
         length,
@@ -967,53 +1128,51 @@ def build_main_explorer_figure(panel, highlighted_codes, focus_code):
         title,
         tickvals,
         ticktext,
-        zmid=None,
         tickfont_size=8,
         titlefont_size=8,
     ):
-        trace_kwargs = dict(
-            z=[[zmin, zmax]],
-            x=[0, 1],
-            y=[0],
-            zmin=zmin,
-            zmax=zmax,
-            colorscale=colorscale,
-            showscale=True,
-            opacity=0,
-            hoverinfo="skip",
-            colorbar=dict(
-                orientation="h",
-                x=x,
-                xanchor="center",
-                y=y,
-                yanchor="top",
-                len=length,
-                thickness=thickness,
-                tickvals=tickvals,
-                ticktext=ticktext,
-                tickfont=dict(size=tickfont_size),
-                title=dict(
-                    text=title,
-                    side="bottom",
-                    font=dict(size=titlefont_size),
-                ),
-            ),
-        )
-
-        if zmid is not None:
-            trace_kwargs["zmid"] = zmid
-
         fig.add_trace(
-            go.Heatmap(**trace_kwargs),
+            go.Scatter(
+                x=[None, None],
+                y=[None, None],
+                mode="markers",
+                marker=dict(
+                    color=[cmin, cmax],
+                    cmin=cmin,
+                    cmax=cmax,
+                    colorscale=colorscale,
+                    showscale=True,
+                    size=0.01,
+                    opacity=0,
+                    colorbar=dict(
+                        orientation="h",
+                        x=x,
+                        xanchor="center",
+                        y=y,
+                        yanchor="top",
+                        len=length,
+                        thickness=thickness,
+                        tickvals=tickvals,
+                        ticktext=ticktext,
+                        tickfont=dict(size=tickfont_size),
+                        title=dict(
+                            text=title,
+                            side="bottom",
+                            font=dict(size=titlefont_size),
+                        ),
+                    ),
+                ),
+                hoverinfo="skip",
+                showlegend=False,
+            ),
             row=1,
             col=2,
         )
 
     add_bottom_colorbar(
         colorscale=colors["main"],
-        zmin=-2,
-        zmax=2,
-        zmid=0,
+        cmin=-2,
+        cmax=2,
         x=0.28,
         y=-0.15,
         length=0.52,
@@ -1027,8 +1186,8 @@ def build_main_explorer_figure(panel, highlighted_codes, focus_code):
 
     add_bottom_colorbar(
         colorscale=colors["age"],
-        zmin=0,
-        zmax=0.45,
+        cmin=0,
+        cmax=0.45,
         x=0.665,
         y=-0.15,
         length=0.22,
@@ -1042,8 +1201,8 @@ def build_main_explorer_figure(panel, highlighted_codes, focus_code):
 
     add_bottom_colorbar(
         colorscale=colors["em"],
-        zmin=0,
-        zmax=1,
+        cmin=0,
+        cmax=1,
         x=0.845,
         y=-0.15,
         length=0.075,
@@ -1057,9 +1216,8 @@ def build_main_explorer_figure(panel, highlighted_codes, focus_code):
 
     add_bottom_colorbar(
         colorscale=colors["fem"],
-        zmin=0.35,
-        zmax=0.65,
-        zmid=0.50,
+        cmin=0.35,
+        cmax=0.65,
         x=0.955,
         y=-0.15,
         length=0.075,
@@ -1073,11 +1231,19 @@ def build_main_explorer_figure(panel, highlighted_codes, focus_code):
 
     fig.update_layout(
         height=max(780, 34 * n_rows + 260),
-        margin=dict(l=10, r=10, t=68, b=175),
+        margin=dict(l=10, r=10, t=68, b=180),
         paper_bgcolor="white",
         plot_bgcolor="white",
         font=dict(size=11),
     )
+
+    # Keep year axis fixed after adding dummy colorbar traces.
+    if years:
+        fig.update_xaxes(
+            range=[min(years) - 0.5, max(years) + 0.5],
+            row=1,
+            col=2,
+        )
 
     return fig
 
@@ -1095,7 +1261,11 @@ def build_outlier_figure(metrics_filtered, focus_code):
                 text=sub["diagnosis_code"],
                 textposition="top center",
                 marker=dict(
-                    size=np.clip(np.sqrt(sub["baseline_adm"].fillna(0).clip(lower=1)) / 5, 8, 28),
+                    size=np.clip(
+                        np.sqrt(sub["baseline_adm"].fillna(0).clip(lower=1)) / 5,
+                        8,
+                        28,
+                    ),
                     color=colors.get(chapter, "#8d8d8d"),
                     line=dict(
                         width=np.where(sub["diagnosis_code"] == focus_code, 2.5, 0.5),
@@ -1122,7 +1292,12 @@ def build_outlier_figure(metrics_filtered, focus_code):
             )
         )
 
-    fig.add_vline(x=0, line_width=1, line_dash="dash", line_color="#999999")
+    fig.add_vline(
+        x=0,
+        line_width=1,
+        line_dash="dash",
+        line_color="#999999",
+    )
 
     if not metrics_filtered["age_profile_shift"].dropna().empty:
         fig.add_hline(
@@ -1164,7 +1339,12 @@ def build_parallel_coordinates(metrics_filtered):
                 colorbar=dict(title="Score"),
             ),
             dimensions=[
-                dict(label="Diagnosis", values=tickvals, tickvals=tickvals, ticktext=codes),
+                dict(
+                    label="Diagnosis",
+                    values=tickvals,
+                    tickvals=tickvals,
+                    ticktext=codes,
+                ),
                 dict(label="Recovery gap", values=sub["recovery_gap"].fillna(0)),
                 dict(label="Age shift", values=sub["age_profile_shift"].fillna(0)),
                 dict(label="Emergency Δ", values=sub["emergency_change"].fillna(0)),
@@ -1196,9 +1376,20 @@ if df.empty:
 st.markdown(
     """
     <style>
-    .block-container {padding-top: 1.1rem; padding-bottom: 1rem;}
-    [data-testid="stSidebar"] {min-width: 280px; max-width: 320px;}
-    .small-note {font-size: 0.92rem; color: #555;}
+    .block-container {
+        padding-top: 1.1rem;
+        padding-bottom: 1rem;
+    }
+
+    [data-testid="stSidebar"] {
+        min-width: 280px;
+        max-width: 320px;
+    }
+
+    .small-note {
+        font-size: 0.92rem;
+        color: #555;
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -1207,24 +1398,34 @@ st.markdown(
 st.title(APP_TITLE)
 st.caption(APP_SUBTITLE)
 st.caption(
-    "B = Baseline (2015–2019); S = Shock (2020–2021); R = Recovery (2022–2023/24). "
-    "Rows are selected and clustered within chapter to emphasise diagnoses whose "
-    "headline recovery masks internal age-profile change."
+    "B = Baseline (2015–2019); S = Shock (2020–2021); "
+    "R = Recovery (2022–2023/24). Rows are selected and clustered within chapter "
+    "to emphasise diagnoses whose headline recovery masks internal age-profile change."
 )
 
 with st.sidebar:
     st.header("Controls")
 
-    level_label = st.radio("Hierarchy level", ["3-character", "4-character"], index=0)
-    level_key = {"3-character": "3_char", "4-character": "4_char"}[level_label]
+    level_label = st.radio(
+        "Hierarchy level",
+        ["3-character", "4-character"],
+        index=0,
+    )
+
+    level_key = {
+        "3-character": "3_char",
+        "4-character": "4_char",
+    }[level_label]
 
     df_level = df[df["level"] == level_key].copy()
+
     if df_level.empty:
         st.warning("No data available for this hierarchy level.")
         st.stop()
 
     year_min = int(df_level["year"].min())
     year_max = int(df_level["year"].max())
+
     year_range = st.slider(
         "Visible year range",
         min_value=year_min,
@@ -1240,15 +1441,18 @@ with st.sidebar:
     )
 
     age_band = None
+
     if matrix_mode == "Age-specific anomaly":
         age_band = st.selectbox("Age band", AGE_ORDER, index=14)
 
     metrics_all = prepare_metrics(df_level)
+
     if metrics_all.empty:
         st.warning("No diagnosis metrics could be computed for this hierarchy level.")
         st.stop()
 
     available_chapters = sorted(metrics_all["chapter"].dropna().unique().tolist())
+
     chapter_filter = st.multiselect(
         "Diagnosis chapter",
         available_chapters,
@@ -1269,7 +1473,12 @@ with st.sidebar:
         index=0,
     )
 
-    rows_per_group = st.slider("Rows per chapter/group", 2, 8, 4)
+    rows_per_group = st.slider(
+        "Rows per chapter/group",
+        2,
+        8,
+        4,
+    )
 
 metrics_filtered = apply_metric_filters(
     metrics_all,
@@ -1289,7 +1498,11 @@ if selected_meta.empty:
     st.warning("No diagnoses remain after selection.")
     st.stop()
 
-focus_options_df = selected_meta.sort_values("selection_score", ascending=False).copy()
+focus_options_df = selected_meta.sort_values(
+    "selection_score",
+    ascending=False,
+).copy()
+
 focus_options_df["focus_label"] = (
     focus_options_df["diagnosis_code"].astype(str)
     + " — "
@@ -1302,11 +1515,19 @@ if "focus_choice" not in st.session_state or st.session_state["focus_choice"] no
     st.session_state["focus_choice"] = focus_options[0]
 
 with st.sidebar:
-    focus_choice = st.selectbox("Focus diagnosis", focus_options, key="focus_choice")
+    focus_choice = st.selectbox(
+        "Focus diagnosis",
+        focus_options,
+        key="focus_choice",
+    )
 
 focus_code = focus_choice.split(" — ")[0]
 
-highlighted = selected_meta.sort_values("selection_score", ascending=False).head(3).copy()
+highlighted = selected_meta.sort_values(
+    "selection_score",
+    ascending=False,
+).head(3).copy()
+
 highlighted_codes = highlighted["diagnosis_code"].tolist()
 
 row_meta = build_row_meta(selected_meta)
@@ -1328,21 +1549,30 @@ with main_tab:
     st.plotly_chart(
         build_main_explorer_figure(panel, highlighted_codes, focus_code),
         use_container_width=True,
-        config={"responsive": True, "displaylogo": False},
+        config={
+            "responsive": True,
+            "displaylogo": False,
+        },
     )
 
 with outlier_tab:
     st.plotly_chart(
         build_outlier_figure(metrics_filtered, focus_code),
         use_container_width=True,
-        config={"responsive": True, "displaylogo": False},
+        config={
+            "responsive": True,
+            "displaylogo": False,
+        },
     )
 
 with cohort_tab:
     st.plotly_chart(
         build_parallel_coordinates(metrics_filtered),
         use_container_width=True,
-        config={"responsive": True, "displaylogo": False},
+        config={
+            "responsive": True,
+            "displaylogo": False,
+        },
     )
 
 focus_row = selected_meta[selected_meta["diagnosis_code"] == focus_code]
@@ -1368,6 +1598,7 @@ with col1:
 
 with col2:
     st.markdown("### Top diagnoses under current filters")
+
     show_cols = [
         "diagnosis_code",
         "short_label",
@@ -1379,7 +1610,8 @@ with col2:
     ]
 
     st.dataframe(
-        highlighted[show_cols].rename(
+        highlighted[show_cols]
+        .rename(
             columns={
                 "diagnosis_code": "Code",
                 "short_label": "Diagnosis",
@@ -1389,7 +1621,9 @@ with col2:
                 "age_profile_shift": "Age-profile shift",
                 "emergency_change": "Emergency Δ",
             }
-        ).round(3),
+        )
+        .round(3),
         use_container_width=True,
         hide_index=True,
     )
+
