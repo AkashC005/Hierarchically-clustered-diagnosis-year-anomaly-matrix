@@ -9,6 +9,9 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import streamlit as st
 
+# =========================================================
+# Page config
+# =========================================================
 st.set_page_config(
     page_title="Interactive diagnosis–year hospital admissions anomaly matrix",
     page_icon="📊",
@@ -16,15 +19,25 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# =========================================================
+# App text
+# =========================================================
 APP_TITLE = "Recovered totals, reconfigured ages: Hierarchically clustered diagnosis-year anomaly matrix"
 APP_SUBTITLE = "3-character primary diagnoses, financial years 2012–2023/24. Highlighted rows show diagnoses whose total admissions move back toward baseline while their age profile remains altered."
 
+# =========================================================
+# Paths
+# =========================================================
 DATA_DIR = Path("data")
 ZIP_CANDIDATES = [
     DATA_DIR / "NHS Hospital Admissions.zip",
     Path("NHS Hospital Admissions.zip"),
 ]
 PARQUET_PATH = DATA_DIR / "hospital_admissions_tidy.parquet"
+
+# =========================================================
+# Constants
+# =========================================================
 AGE_ORDER = [
     "0", "1-4", "5-9", "10-14", "15", "16", "17", "18", "19",
     "20-24", "25-29", "30-34", "35-39", "40-44", "45-49",
@@ -57,6 +70,9 @@ CHAPTER_COLORS = {
     "Other": "#8d8d8d",
 }
 
+# =========================================================
+# Helpers
+# =========================================================
 def normalise_text(x):
     if pd.isna(x):
         return ""
@@ -217,6 +233,10 @@ def classify_mode_skew(em_share, pl_share):
             return "Planned-dominant"
     return "Mixed"
 
+
+# =========================================================
+# Data loading
+# =========================================================
 @st.cache_data(show_spinner=True)
 def build_tidy_dataset_from_zip():
     zip_path = get_zip_path()
@@ -336,6 +356,10 @@ def load_data():
 
     return df
 
+
+# =========================================================
+# Metrics
+# =========================================================
 def build_anomaly_wide(df_level, age_mode="All ages"):
     if df_level.empty:
         return pd.DataFrame()
@@ -485,6 +509,10 @@ def prepare_metrics(df_level):
 
     return m
 
+
+# =========================================================
+# Filtering and selection
+# =========================================================
 def apply_metric_filters(metrics_df, chapter_filter, diagnosis_search, gender_filter, mode_filter):
     m = metrics_df.copy()
     if m.empty:
@@ -553,6 +581,9 @@ def build_row_meta(selected_meta):
     return row_meta
 
 
+# =========================================================
+# Panel data
+# =========================================================
 def build_panel_data(df_level, row_meta, visible_years, age_mode):
     panel = {
         "row_labels": [r["label"] for r in row_meta],
@@ -595,6 +626,7 @@ def build_panel_data(df_level, row_meta, visible_years, age_mode):
 
         panel["band_values"].append([chapter_to_num.get(meta["chapter"], np.nan)])
 
+        # main matrix
         if age_mode == "All ages":
             base_val = g[g["year"].isin(BASELINE_YEARS)]["Admissions"].mean()
             vals, custom = [], []
@@ -622,6 +654,8 @@ def build_panel_data(df_level, row_meta, visible_years, age_mode):
 
         panel["main_z"].append(vals)
         panel["main_custom"].append(custom)
+
+        # baseline / recovery age sidecars
         bvals, bcustom = [], []
         rvals, rcustom = [], []
         for age in AGE_ORDER:
@@ -637,7 +671,7 @@ def build_panel_data(df_level, row_meta, visible_years, age_mode):
         panel["rec_z"].append(rvals)
         panel["rec_custom"].append(rcustom)
 
-
+        # emergency / female B-S-R
         periods = [("Baseline", BASELINE_YEARS), ("Shock", SHOCK_YEARS), ("Recovery", RECOVERY_YEARS)]
         evals, ecustom, fvals, fcustom = [], [], [], []
         for pname, yrs in periods:
@@ -656,6 +690,9 @@ def build_panel_data(df_level, row_meta, visible_years, age_mode):
     return panel
 
 
+# =========================================================
+# Figure builders
+# =========================================================
 def make_colors():
     return {
         "main": [[0.0, "#2d6a96"], [0.5, "#f7f4ef"], [1.0, "#b6443f"]],
@@ -687,7 +724,16 @@ def add_highlight_shapes(fig, row_meta, highlighted_codes, focus_code, years, xr
 
 
 def build_main_explorer_figure(panel, highlighted_codes, focus_code):
-
+    """
+    Single combined figure matching the pasted image exactly:
+      Col1: chapter colour band (narrow)
+      Col2: admissions anomaly by year (wide main matrix)
+      Col3: age profile baseline
+      Col4: age profile recovery
+      Col5: emergency B/S/R (narrow)
+      Col6: female B/S/R (narrow)
+    Colorbars as horizontal bars below the figure in one row.
+    """
     colors = make_colors()
     row_meta = panel["row_meta"]
     years = panel["visible_years"]
@@ -709,6 +755,7 @@ def build_main_explorer_figure(panel, highlighted_codes, focus_code):
         ],
     )
 
+    # ---- Col 1: Chapter colour band ----
     zmax_band = max(1, len(panel["chapters"]) - 1)
     fig.add_trace(
         go.Heatmap(
@@ -733,6 +780,7 @@ def build_main_explorer_figure(panel, highlighted_codes, focus_code):
         row=1, col=1
     )
 
+    # ---- Col 2: Main anomaly heatmap ----
     fig.add_trace(
         go.Heatmap(
             z=np.array(panel["main_z"], dtype=float),
@@ -759,6 +807,8 @@ def build_main_explorer_figure(panel, highlighted_codes, focus_code):
         ),
         row=1, col=2
     )
+
+    # ---- Col 3: Baseline age profile ----
     fig.add_trace(
         go.Heatmap(
             z=np.array(panel["base_z"], dtype=float),
@@ -780,6 +830,8 @@ def build_main_explorer_figure(panel, highlighted_codes, focus_code):
         ),
         row=1, col=3
     )
+
+    # ---- Col 4: Recovery age profile ----
     fig.add_trace(
         go.Heatmap(
             z=np.array(panel["rec_z"], dtype=float),
@@ -801,6 +853,8 @@ def build_main_explorer_figure(panel, highlighted_codes, focus_code):
         ),
         row=1, col=4
     )
+
+    # ---- Col 5: Emergency share B/S/R ----
     fig.add_trace(
         go.Heatmap(
             z=np.array(panel["em_z"], dtype=float),
@@ -821,6 +875,8 @@ def build_main_explorer_figure(panel, highlighted_codes, focus_code):
         ),
         row=1, col=5
     )
+
+    # ---- Col 6: Female share B/S/R ----
     fig.add_trace(
         go.Heatmap(
             z=np.array(panel["fem_z"], dtype=float),
@@ -843,6 +899,7 @@ def build_main_explorer_figure(panel, highlighted_codes, focus_code):
         row=1, col=6
     )
 
+    # ---- Y-axes ----
     fig.update_yaxes(
         tickmode="array",
         tickvals=list(range(n_rows)),
@@ -855,6 +912,7 @@ def build_main_explorer_figure(panel, highlighted_codes, focus_code):
     for c in [2, 3, 4, 5, 6]:
         fig.update_yaxes(showticklabels=False, row=1, col=c, autorange="reversed", showgrid=False)
 
+    # ---- X-axes ----
     fig.update_xaxes(tickfont=dict(size=10), showgrid=False, row=1, col=2)
     for c in [3, 4]:
         fig.update_xaxes(
@@ -868,60 +926,111 @@ def build_main_explorer_figure(panel, highlighted_codes, focus_code):
     for c in [5, 6]:
         fig.update_xaxes(tickfont=dict(size=9), showgrid=False, row=1, col=c)
 
+    # ---- Highlight outlines ----
     add_highlight_shapes(fig, row_meta, highlighted_codes, focus_code, years, xref="x2", yref="y")
 
+    # ---- Subplot title styling ----
     for ann in fig.layout.annotations:
         ann.font = dict(size=11, color="#333333")
         ann.y = 1.03
 
+    # ---- Invisible traces for horizontal colorbars at bottom ----
+    # Admissions anomaly — wide bar occupying roughly the left 55% of figure width
     fig.add_trace(
         go.Heatmap(
             z=[[0, 1]], colorscale=colors["main"], zmin=-2, zmax=2,
             showscale=True,
             colorbar=dict(
-                orientation="h", x=0.27, y=-0.17, len=0.38, thickness=12,
+                orientation="h",
+                x=0.27,        # centre of bar
+                xanchor="center",
+                y=-0.15,
+                yanchor="top",
+                len=0.52,      # wide — matches the long blue-white-red bar in screenshot
+                thickness=13,
                 tickfont=dict(size=9),
-                title=dict(text="Admissions anomaly vs 2015–2019 baseline", side="bottom", font=dict(size=9)),
-                tickvals=[-2, -1, 0, 1, 2],
+                title=dict(
+                    text="Admissions anomaly vs 2015–2019 baseline",
+                    side="bottom",
+                    font=dict(size=9),
+                ),
+                tickvals=[-2, -1.5, -1, -0.5, 0, 0.5, 1, 1.5, 2],
+                ticktext=["-2.0", "-1.5", "-1.0", "-0.5", "0.0", "0.5", "1.0", "1.5", "2.0"],
             ),
             hoverinfo="skip", visible=False,
         ), row=1, col=2,
     )
+    # Age share — medium bar sitting centre-right
     fig.add_trace(
         go.Heatmap(
             z=[[0, 1]], colorscale=colors["age"], zmin=0, zmax=0.45,
             showscale=True,
             colorbar=dict(
-                orientation="h", x=0.615, y=-0.17, len=0.20, thickness=12,
+                orientation="h",
+                x=0.66,
+                xanchor="center",
+                y=-0.15,
+                yanchor="top",
+                len=0.22,
+                thickness=13,
                 tickfont=dict(size=9),
-                title=dict(text="Age share within diagnosis", side="bottom", font=dict(size=9)),
-                tickvals=[0, 0.15, 0.30, 0.45],
+                title=dict(
+                    text="Age share within diagnosis",
+                    side="bottom",
+                    font=dict(size=9),
+                ),
+                tickvals=[0, 0.05, 0.10, 0.15, 0.20, 0.25, 0.30, 0.35, 0.40, 0.45],
+                ticktext=["0", "0.05", "0.10", "0.15", "0.20", "0.25", "0.30", "0.35", "0.40", "0.45"],
             ),
             hoverinfo="skip", visible=False,
         ), row=1, col=2,
     )
+    # Emergency share — small bar far right
     fig.add_trace(
         go.Heatmap(
             z=[[0, 1]], colorscale=colors["em"], zmin=0, zmax=1,
             showscale=True,
             colorbar=dict(
-                orientation="h", x=0.855, y=-0.13, len=0.065, thickness=10,
+                orientation="h",
+                x=0.845,
+                xanchor="center",
+                y=-0.15,
+                yanchor="top",
+                len=0.075,
+                thickness=11,
                 tickfont=dict(size=8),
-                title=dict(text="Emergency share", side="bottom", font=dict(size=8)),
+                title=dict(
+                    text="Emergency share",
+                    side="bottom",
+                    font=dict(size=8),
+                ),
                 tickvals=[0, 0.5, 1.0],
+                ticktext=["0", "0.5", "1.0"],
             ),
             hoverinfo="skip", visible=False,
         ), row=1, col=2,
     )
+    # Female share — small bar at far right edge
     fig.add_trace(
         go.Heatmap(
             z=[[0, 1]], colorscale=colors["fem"], zmin=0.35, zmax=0.65, zmid=0.5,
             showscale=True,
             colorbar=dict(
-                orientation="h", x=0.960, y=-0.13, len=0.065, thickness=10,
+                orientation="h",
+                x=0.955,
+                xanchor="center",
+                y=-0.15,
+                yanchor="top",
+                len=0.075,
+                thickness=11,
                 tickfont=dict(size=8),
-                title=dict(text="Female share", side="bottom", font=dict(size=8)),
-                tickvals=[0.35, 0.50, 0.65],
+                title=dict(
+                    text="Female share",
+                    side="bottom",
+                    font=dict(size=8),
+                ),
+                tickvals=[0.4, 0.5, 0.6],
+                ticktext=["0.4", "0.5", "0.6"],
             ),
             hoverinfo="skip", visible=False,
         ), row=1, col=2,
@@ -1028,6 +1137,10 @@ def build_parallel_coordinates(metrics_filtered):
     )
     return fig
 
+
+# =========================================================
+# UI
+# =========================================================
 df = load_data()
 
 if df.empty:
